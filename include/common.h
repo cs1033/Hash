@@ -16,8 +16,8 @@
 #define LE_DATA              0
 #define LE_COMMIT            1
 
-#define POOLSIZE 10 
-#define LOADSCALE 100 
+#define POOLSIZE 5 
+#define LOADSCALE 16 
 
 #define KILO 1024
 #define MILLION (KILO * KILO)

@@ -1,7 +1,7 @@
 CPP:=g++ 
 FLUSH_FLAG :=-DCLWB 
-CFLAGS:=-Iinclude -Itree -mclflushopt -mclwb -fmax-errors=5 -O2 $(FLUSH_FLAG) -m64 -mlzcnt -mpopcnt
-CFLAGS_DEBUG :=-Iinclude -Itree -mclflushopt -mclwb -fmax-errors=5 -g $(FLUSH_FLAG) -m64 -mlzcnt -mpopcnt
+CFLAGS:=-Iinclude -Iindex -mclflushopt -mclwb -fmax-errors=5 -O2 $(FLUSH_FLAG) -m64 -mlzcnt -mpopcnt
+CFLAGS_DEBUG :=-Iinclude -Iindex -mclflushopt -mclwb -fmax-errors=5 -g $(FLUSH_FLAG) -m64 -mlzcnt -mpopcnt
 STD := -std=c++14
 
 LINK_LIB:=-lpmemobj -lpthread -fopenmp
