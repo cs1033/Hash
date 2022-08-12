@@ -83,7 +83,7 @@ namespace level {
         }
 
         bool Insert(_key_t key, _value_t value) {
-
+            
         }
 
         bool Delete(_key_t key) {
