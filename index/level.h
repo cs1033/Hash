@@ -15,6 +15,9 @@
 #define PMLINE 256
 #define ASSOC_NUM 15
 
+#define F_IDX(hash, capacity) (hash % (capacity / 2))
+#define S_IDX(hash, capacity) ((hash % (capacity / 2)) + (capacity / 2))
+
 namespace level {
     using std::string;
     using std::cout;
@@ -130,16 +133,48 @@ namespace level {
         }
         
         bool Get(_key_t key, _value_t& value) {
-
+            
         }
 
         bool Insert(_key_t key, _value_t value) {
+        Redo:
+            uint64_t f_hash = hash1(key);
+            uint64_t s_hash = hash2(key);
+            uint64_t f_index = F_IDX(f_hash, addr_capacity_);
+            uint64_t s_index = S_IDX(s_hash, addr_capacity_);
 
+            for (int i = 0; i < 2; ++i) {
+                if (buckets_[i][f_index].Insert(key, value)) {
+                    return true;
+                }
+                if (buckets_[i][s_index].Insert(key, value)) {
+                    return true;
+                }
+                f_index = F_IDX(f_hash, addr_capacity_ / 2);
+                s_index = S_IDX(s_hash, addr_capacity_ / 2);
+            }
+            if (!Expand()) {
+                return false;
+            }
+            goto Redo;
         }
 
         bool Delete(_key_t key) {
 
         }
+
+    private:
+        bool Expand() {
+            
+        }    
+
+
+    private:
+        bucket* buckets_[2];
+        bucket* interim_level_buckets_;
+    
+        uint64_t addr_capacity_, level_;
+        uint64_t level_entry_num_[2];
     };
 }
 
