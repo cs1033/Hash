@@ -95,15 +95,19 @@ static char finger_print(_key_t k) {
 }
 
 
-static char finger_print2(_key_t k) {
-// using for the buffer fp
+inline size_t hash1(_key_t k, size_t seed = 0xc70f6907UL) {
+    return std::_Hash_bytes(&k, sizeof(_key_t), seed);
+}
+
+inline size_t hash2(_key_t k, size_t seed = 0xc70f6907UL) {
     k ^= k >> 33;
     k *= 0xff51afd7ed558ccd;
     k ^= k >> 33;
     k *= 0xc4ceb9fe1a85ec53;
     k ^= k >> 33;
-    return (k & 0xff);
+    return k;
 }
+
 
 
 #endif //__COMMON_H__
