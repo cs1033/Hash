@@ -13,7 +13,7 @@
 #include "flush.h"
 
 #define PMLINE 256
-#define ASSOC_NUM 14
+#define ASSOC_NUM 15
 
 namespace level {
     using std::string;
@@ -59,9 +59,10 @@ namespace level {
     struct  bucket
     {
         state_t state_;
-        char fingerprints_[ASSOC_NUM];
+        // char fingerprints_[ASSOC_NUM];
+        char dumnt_[14];
         Record slot_[ASSOC_NUM];
-        char dumnt_[16];
+        
 
         bucket () {
             state_.pack = 0;
@@ -72,9 +73,8 @@ namespace level {
         }
 
         bool Get(_key_t key, _value_t& value) {
-            char fp = finger_print(key);
             for (size_t i = 0; i < ASSOC_NUM; ++i) {
-                if (state_.read(i) && fingerprints_[i] == fp && slot_[i].key == key) {
+                if (state_.read(i) && slot_[i].key == key) {
                     value = (_value_t)slot_[i].val;
                     return true;
                 }
@@ -83,13 +83,25 @@ namespace level {
         }
 
         bool Insert(_key_t key, _value_t value) {
-            
+            if (state_.count() == ASSOC_NUM) {
+                return false;
+            } else {
+                auto slotid = state_.alloc();
+                slot_[slotid] = {key, (char*)value};
+                clwb(&slot_[slotid], sizeof(Record));
+                mfence();
+
+                state_t new_state = state_;
+                new_state.unpack.bitmap = state_.add(slotid);
+                state_.pack = new_state.pack;
+                clwb(&state_, 64);
+                return true;
+            }
         }
 
         bool Delete(_key_t key) {
-            char fp = finger_print(key);
             for (size_t i = 0; i < ASSOC_NUM; ++i) {
-                if (state_.read(i) && fingerprints_[i] == fp && slot_[i].key == key) {
+                if (state_.read(i) && slot_[i].key == key) {
                     state_t new_state = state_;
                     new_state.unpack.bitmap = state_.free(i);
                     state_.pack = new_state.pack;
