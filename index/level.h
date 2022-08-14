@@ -118,11 +118,44 @@ namespace level {
     }__attribute__((aligned(PMLINE)));
     
 
+    struct entrance
+    {
+        bucket*     buckets_[2];
+        bucket*     interim_level_buckets_;
+        uint64_t    level_;
+    };
+    
+
+
     class levelHash {
     public:
-        levelHash(string path, bool recover) {
+        levelHash(string path, bool recover, uint64_t level = 10) {
             if (recover == false) {
                 galc = new PMAllocator(path.c_str(), false, "levelHash");
+                addr_capacity_ = (uint64_t)1 << level;
+                level_entry_num_[0] = 0;
+                level_entry_num_[1] = 0;
+                interim_level_buckets_ = nullptr;
+                level_ = level;
+                
+                /* allocate*/
+                entrance_ = (entrance *) galc->malloc(sizeof(entrance));
+                buckets_[0] = (bucket *) galc->malloc(sizeof(bucket) * (addr_capacity_ + 1)); 
+                buckets_[1] = (bucket *) galc->malloc(sizeof(bucket) * (addr_capacity_ / 2 + 1)); 
+
+                /* persist */
+                for (int i = 0; i <= addr_capacity_; ++i) {
+                    clwb(&(buckets_[0][i].state_), 64);                    
+                } 
+                for (int i = 0; i <= addr_capacity_ / 2; ++i) {
+                    clwb(&(buckets_[1][i].state_), 64);                    
+                } 
+                entrance_->buckets_[0] = galc->relative(buckets_[0]);
+                entrance_->buckets_[1] = galc->relative(buckets_[1]);
+                entrance_->interim_level_buckets_ = nullptr;
+                entrance_->level_ = level;
+                clwb(entrance_, sizeof(entrance));
+
             } else {
                 galc = new PMAllocator(path.c_str(), true, "levelHash");
             }
@@ -165,16 +198,20 @@ namespace level {
 
     private:
         bool Expand() {
-            
+            uint64_t new_level = level_ + 1;
+            uint64_t new_addr_capacity = (uint64_t)1 << new_level;
+            interim_level_buckets_ = (bucket*) galc->malloc(sizeof(bucket) * (new_addr_capacity + 1));
         }    
 
 
     private:
-        bucket* buckets_[2];
-        bucket* interim_level_buckets_;
-    
-        uint64_t addr_capacity_, level_;
-        uint64_t level_entry_num_[2];
+        entrance*   entrance_;
+        bucket*     buckets_[2];
+        bucket*     interim_level_buckets_;
+        
+        uint64_t    level_;
+        uint64_t    addr_capacity_;
+        uint64_t    level_entry_num_[2];
     };
 }
 
