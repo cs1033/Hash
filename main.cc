@@ -15,7 +15,7 @@
 #include <omp.h>
  
 #include "common.h"
-
+#include "level.h"
 
 
 
@@ -24,7 +24,7 @@ using std::endl;
 using std::ifstream;
 using std::string;
 
-// PMAllocator * galc;
+PMAllocator * galc;
 uint32_t flush_cnt;
 _key_t * keys;
 typedef int64_t mykey_t; 
@@ -45,7 +45,7 @@ void preload(BTreeType *tree, uint64_t load_size, ifstream & fin, int thread_cnt
  
             for(int i = 0; i < MILLION; i++) {
                 mykey_t key = keys[i];
-                tree->insert((mykey_t)key, key);
+                tree->Insert((mykey_t)key, key);
                 
             }
         }
@@ -86,21 +86,24 @@ double run_test(BTreeType *tree, std::vector<QueryType> querys, int thread_cnt) 
 
                 switch (op) { 
                     case OperationType::INSERT: {
-                        tree->insert(key + small_noise, key + small_noise);
+                        tree->Insert(key + small_noise, key + small_noise);
                         break;
                     }
                     case OperationType::READ: {
-                        auto r = tree->find(key, val);
+                        auto r = tree->Get(key, val);
                         // if (key != val) cout << obtain_pos << "key=" << key << "value=" << val << endl;
-                        if (key != val)     notfount++;     //kill optimize
+                        if (!r)  {
+                            notfount++;     //kill optimize
+                            // cout << "key=" << key  << " " << INT64_MAX << " value=" << val << endl;
+                        }   
                         break;
                     } 
                     case OperationType::UPDATE: {
-                        tree->update(key, key);
+                        // tree->update(key, key);
                         break;  
                     }
                     case OperationType::DELETE: {
-                        tree->remove(key);
+                        // tree->remove(key);
                         break;
                     }
                     default: 
@@ -185,7 +188,17 @@ int main(int argc, char ** argv) {
     }
 
     switch (opt_testid) { 
-        
+        case 1: {
+            level::levelHash* hash = new level::levelHash("/mnt/pmem/lgc/levelHash.pool", false);
+            auto start = seconds();
+            preload(hash, size, pre);
+            auto end = seconds();
+            cout << "preload time:" << double(end - start) << endl;
+            time = run_test(hash, querys, thread_cnt);
+            cout << "levelHash";
+            delete hash;
+            break;
+        }
         default:
             cout << "Invalid tree type" << endl;
             break;

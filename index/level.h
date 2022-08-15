@@ -28,9 +28,7 @@ namespace level {
         uint16_t pack;
         //2
         struct unpack_t {
-            uint16_t bitmap         : 14;
-            uint16_t sib_version    : 1;
-            uint16_t node_version   : 1;
+            uint16_t bitmap         : 16;
         } unpack;
 
         inline uint8_t count() {
@@ -38,24 +36,20 @@ namespace level {
         }
 
         inline bool read(int8_t idx) {
-            return (unpack.bitmap & ((uint16_t)0x8000 >> (idx + 2))) > 0;
+            return (unpack.bitmap & ((uint16_t)0x8000 >> idx)) > 0;
         }
 
         inline int8_t alloc() {
-            uint32_t tmp = ((uint64_t)0xFFFFC000 | unpack.bitmap);
-            return __builtin_ia32_lzcnt_u32(~tmp) - 18;
+            uint32_t tmp = ((uint64_t)0xFFFF0000 | unpack.bitmap);
+            return __builtin_ia32_lzcnt_u32(~tmp) - 16;
         }
 
         inline uint16_t add(int8_t idx) {
-            return unpack.bitmap + ((uint16_t)0x8000 >> (idx + 2));
+            return unpack.bitmap + ((uint16_t)0x8000 >> idx);
         }
 
         inline uint16_t free(int8_t idx) {
-            return unpack.bitmap - ((uint16_t)0x8000 >> (idx + 2));
-        }
-
-        inline uint8_t get_sibver() {
-            return (uint8_t) unpack.sib_version;
+            return unpack.bitmap - ((uint16_t)0x8000 >> idx);
         }
     };
 
@@ -90,7 +84,7 @@ namespace level {
                 return false;
             } else {
                 auto slotid = state_.alloc();
-                slot_[slotid] = {key, (char*)value};
+                slot_[slotid] = {key, value};
                 clwb(&slot_[slotid], sizeof(Record));
                 mfence();
 
@@ -120,9 +114,10 @@ namespace level {
 
     struct entrance
     {
-        bucket*     buckets_[2];
-        bucket*     interim_level_buckets_;
-        uint64_t    level_;
+        bucket*     buckets_[2][2];
+        bucket*     interim_level_buckets_[2];
+        uint64_t    level_[2];
+        uint8_t     version_;
     };
     
 
@@ -151,10 +146,12 @@ namespace level {
                     clwb(&(buckets_[1][i].state_), 64);                    
                 } 
                 mfence();
-                entrance_->buckets_[0] = galc->relative(buckets_[0]);
-                entrance_->buckets_[1] = galc->relative(buckets_[1]);
-                entrance_->interim_level_buckets_ = nullptr;
-                entrance_->level_ = level;
+                entrance_->buckets_[0][0] = galc->relative(buckets_[0]);
+                entrance_->buckets_[0][1] = galc->relative(buckets_[1]);
+                entrance_->interim_level_buckets_[0] = nullptr;
+                entrance_->interim_level_buckets_[1] = nullptr;
+                entrance_->level_[0] = level;
+                entrance_->version_ = 0;
                 clwb(entrance_, sizeof(entrance));
 
             } else {
@@ -163,7 +160,10 @@ namespace level {
         }
         
         ~levelHash() {
-
+            // std::cout << "level: " << level_ << std::endl;
+            // std::cout << "capacity: " << addr_capacity_ << std::endl;
+            // std::cout << "level 0: " << level_entry_num_[0] << std::endl;
+            // std::cout << "level 1: " << level_entry_num_[1] << std::endl;
         }
         
         bool Get(_key_t key, _value_t& value) {
@@ -195,32 +195,36 @@ namespace level {
 
             for (int i = 0; i < 2; ++i) {
                 if (buckets_[i][f_index].Insert(key, value)) {
+                    level_entry_num_[i]++;
                     return true;
                 }
                 if (buckets_[i][s_index].Insert(key, value)) {
+                    level_entry_num_[i]++;
                     return true;
                 }
                 f_index = F_IDX(f_hash, addr_capacity_ / 2);
                 s_index = S_IDX(s_hash, addr_capacity_ / 2);
             }
-            if (!Expand()) {
-                return false;
-            }
+            Expand();
             goto Redo;
         }
 
         bool Delete(_key_t key) {
-
+            return true;
         }
 
     private:
         bool Expand() {
+            uint8_t new_version = (entrance_->version_ + 1) % 2;
             uint64_t new_level = level_ + 1;
             uint64_t new_addr_capacity = (uint64_t)1 << new_level;
+            addr_capacity_ = new_addr_capacity;
+            level_ = new_level;
+            std::swap(level_entry_num_[0], level_entry_num_[1]);
             
             /* allocate and persist */
             interim_level_buckets_ = (bucket*) galc->malloc(sizeof(bucket) * (new_addr_capacity + 1));
-            entrance_->interim_level_buckets_ = galc->relative(interim_level_buckets_);
+            entrance_->interim_level_buckets_[new_version] = galc->relative(interim_level_buckets_);
             clwb(entrance_->interim_level_buckets_, sizeof(bucket));
             mfence();
 
@@ -248,16 +252,20 @@ namespace level {
             mfence();
 
             /* pointers consistency */
+            auto tmp = buckets_[1];
             buckets_[1] = buckets_[0];
             buckets_[0] = interim_level_buckets_;
-            entrance_->buckets_[1] = entrance_->buckets_[0];
-            clwb(entrance_->buckets_[1], sizeof(bucket));
+            entrance_->buckets_[new_version][0] = galc->relative(buckets_[0]);
+            entrance_->buckets_[new_version][1] = galc->relative(buckets_[1]);
+            entrance_->interim_level_buckets_[new_version] = nullptr;
+            entrance_->level_[new_version] = level_;
+            clwb(entrance_, sizeof(entrance));
             mfence();
-            entrance_->buckets_[0] = entrance_->interim_level_buckets_;
-            clwb(entrance_->buckets_[0], sizeof(bucket));
-            mfence();
-            entrance_->interim_level_buckets_ = nullptr;
-            clwb(entrance_->interim_level_buckets_, sizeof(bucket));
+
+            entrance_->version_ = new_version;
+            clwb(&(entrance_->version_), 8);
+
+            return true;
         }    
 
 

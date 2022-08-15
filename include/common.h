@@ -16,8 +16,8 @@
 #define LE_DATA              0
 #define LE_COMMIT            1
 
-#define POOLSIZE 5 
-#define LOADSCALE 16 
+#define POOLSIZE 2 
+#define LOADSCALE 1 
 
 #define KILO 1024
 #define MILLION (KILO * KILO)
@@ -30,8 +30,8 @@ using _value_t = int64_t;
 
 struct Record {
     _key_t key;
-    char * val; 
-    Record(_key_t k=INT64_MAX, char * v=NULL) : key(k), val(v) {}
+    _value_t val; 
+    Record(_key_t k=INT64_MAX, _value_t v=INT64_MAX) : key(k), val(v) {}
     bool operator<(double b) {
         return (double) key < b;
     }
