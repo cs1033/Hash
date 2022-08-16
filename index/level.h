@@ -171,16 +171,33 @@ namespace level {
             uint64_t f_index = F_IDX(f_hash, addr_capacity_);
             uint64_t s_index = S_IDX(s_hash, addr_capacity_);
 
-            for (int i = 0; i < 2; ++i) {
-                if (buckets_[i][f_index].Get(key, value)) {
-                    return true;
+            if (level_entry_num_[0] >= level_entry_num_[1]) {   /* top has more entries */
+                for (int i = 0; i < 2; ++i) {
+                    if (buckets_[i][f_index].Get(key, value)) {
+                        return true;
+                    }
+                    if (buckets_[i][s_index].Get(key, value)) {
+                        return true;
+                    }
+                    f_index = F_IDX(f_hash, addr_capacity_ / 2);
+                    s_index = S_IDX(s_hash, addr_capacity_ / 2);
                 }
-                if (buckets_[i][s_index].Get(key, value)) {
-                    return true;
-                }
+            } else {                                            /*  bottom has more entries */
                 f_index = F_IDX(f_hash, addr_capacity_ / 2);
                 s_index = S_IDX(s_hash, addr_capacity_ / 2);
+                for (int i = 1; i >= 0; --i) {
+                    if (buckets_[i][f_index].Get(key, value)) {
+                        return true;
+                    }
+                    if (buckets_[i][s_index].Get(key, value)) {
+                        return true;
+                    }
+                    f_index = F_IDX(f_hash, addr_capacity_);
+                    s_index = S_IDX(s_hash, addr_capacity_);
+                }
             }
+
+            
 
             return false;
         }
