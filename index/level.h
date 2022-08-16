@@ -108,7 +108,6 @@ namespace level {
             }
             return false;
         }
-
     }__attribute__((aligned(PMLINE)));
     
 
@@ -160,10 +159,10 @@ namespace level {
         }
         
         ~levelHash() {
-            // std::cout << "level: " << level_ << std::endl;
-            // std::cout << "capacity: " << addr_capacity_ << std::endl;
-            // std::cout << "level 0: " << level_entry_num_[0] << std::endl;
-            // std::cout << "level 1: " << level_entry_num_[1] << std::endl;
+            std::cout << "level: " << level_ << std::endl;
+            std::cout << "capacity: " << addr_capacity_ << std::endl;
+            std::cout << "level 0: " << level_entry_num_[0] << std::endl;
+            std::cout << "level 1: " << level_entry_num_[1] << std::endl;
         }
         
         bool Get(_key_t key, _value_t& value) {
@@ -205,6 +204,21 @@ namespace level {
                 f_index = F_IDX(f_hash, addr_capacity_ / 2);
                 s_index = S_IDX(s_hash, addr_capacity_ / 2);
             }
+
+            /* try move an entry */
+            f_index = F_IDX(f_hash, addr_capacity_);
+            s_index = S_IDX(s_hash, addr_capacity_);
+            for (int i = 0; i < 2; ++i) {
+                if (TryMovement(i, f_index)) {
+                    return buckets_[i][f_index].Insert(key, value);
+                }
+                if (TryMovement(i, s_index)) {
+                    return buckets_[i][s_index].Insert(key, value);
+                }
+                f_index = F_IDX(f_hash, addr_capacity_ / 2);
+                s_index = S_IDX(s_hash, addr_capacity_ / 2);
+            }
+
             Expand();
             goto Redo;
         }
@@ -214,6 +228,24 @@ namespace level {
         }
 
     private:
+        bool TryMovement(int level, uint64_t index) {
+            for (int i = 0; i < ASSOC_NUM; ++i) {
+                _key_t      new_key = buckets_[level][index].slot_[i].key;
+                _value_t    new_value = buckets_[level][index].slot_[i].val;
+                uint64_t    f_hash = hash1(new_key);
+                uint64_t    s_hash = hash2(new_key);
+                uint64_t    f_index = F_IDX(f_hash, addr_capacity_);
+                uint64_t    s_index = S_IDX(s_hash, addr_capacity_);
+                uint64_t    k_index = index == f_index ? s_index : f_index;
+
+                if (buckets_[level][k_index].Insert(new_key, new_value)) {
+                    buckets_[level][index].Delete(new_key);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         bool Expand() {
             uint8_t new_version = (entrance_->version_ + 1) % 2;
             uint64_t new_level = level_ + 1;
