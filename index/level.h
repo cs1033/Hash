@@ -12,7 +12,6 @@
 #include "pmallocator.h"
 #include "flush.h"
 
-#define PMLINE 256
 #define ASSOC_NUM 15
 
 #define F_IDX(hash, capacity) (hash % (capacity / 2))

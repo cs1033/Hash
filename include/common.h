@@ -22,6 +22,8 @@
 #define KILO 1024
 #define MILLION (KILO * KILO)
 #define CACHE_LINE_SIZE 64
+#define PMLINE 256
+
 
 #define DOFLUSH
 
