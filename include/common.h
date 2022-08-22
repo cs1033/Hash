@@ -55,6 +55,36 @@ static inline void unset(T& state, size_t index) {
 }
 
 
+union state_t { // an 2 bytes states type
+    //1
+    uint16_t pack;
+    //2
+    struct unpack_t {
+        uint16_t bitmap         : 16;
+    } unpack;
+
+    inline uint8_t count() {
+        return (uint8_t)_mm_popcnt_u32(unpack.bitmap);
+    }
+
+    inline bool read(int8_t idx) {
+        return (unpack.bitmap & ((uint16_t)0x8000 >> idx)) > 0;
+    }
+
+    inline int8_t alloc() {
+        uint32_t tmp = ((uint64_t)0xFFFF0000 | unpack.bitmap);
+        return __builtin_ia32_lzcnt_u32(~tmp) - 16;
+    }
+
+    inline uint16_t add(int8_t idx) {
+        return unpack.bitmap + ((uint16_t)0x8000 >> idx);
+    }
+
+    inline uint16_t free(int8_t idx) {
+        return unpack.bitmap - ((uint16_t)0x8000 >> idx);
+    }
+};
+
 enum OperationType {READ = 0, INSERT, UPDATE, DELETE};
 
 struct QueryType {

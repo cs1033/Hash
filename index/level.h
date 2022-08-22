@@ -22,36 +22,6 @@ namespace level {
     using std::cout;
     using std::endl;
 
-    union state_t { // an 2 bytes states type
-        //1
-        uint16_t pack;
-        //2
-        struct unpack_t {
-            uint16_t bitmap         : 16;
-        } unpack;
-
-        inline uint8_t count() {
-            return (uint8_t)_mm_popcnt_u32(unpack.bitmap);
-        }
-
-        inline bool read(int8_t idx) {
-            return (unpack.bitmap & ((uint16_t)0x8000 >> idx)) > 0;
-        }
-
-        inline int8_t alloc() {
-            uint32_t tmp = ((uint64_t)0xFFFF0000 | unpack.bitmap);
-            return __builtin_ia32_lzcnt_u32(~tmp) - 16;
-        }
-
-        inline uint16_t add(int8_t idx) {
-            return unpack.bitmap + ((uint16_t)0x8000 >> idx);
-        }
-
-        inline uint16_t free(int8_t idx) {
-            return unpack.bitmap - ((uint16_t)0x8000 >> idx);
-        }
-    };
-
     struct  bucket
     {
         state_t state_;
@@ -132,7 +102,7 @@ namespace level {
                 level_ = level;
                 
                 /* allocate*/
-                entrance_ = (entrance *) galc->malloc(sizeof(entrance));
+                entrance_ = (entrance *) galc->get_root(sizeof(entrance));
                 buckets_[0] = (bucket *) galc->malloc(sizeof(bucket) * (addr_capacity_ + 1)); 
                 buckets_[1] = (bucket *) galc->malloc(sizeof(bucket) * (addr_capacity_ / 2 + 1)); 
 
@@ -154,6 +124,13 @@ namespace level {
 
             } else {
                 galc = new PMAllocator(path.c_str(), true, "levelHash");
+                entrance_ = (entrance *) galc->get_root(sizeof(entrance));
+
+                auto version = entrance_->version_;
+                buckets_[0] = galc->absolute(entrance_->buckets_[version][0]);
+                buckets_[1] = galc->absolute(entrance_->buckets_[version][1]);
+
+
             }
         }
         
