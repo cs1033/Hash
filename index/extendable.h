@@ -100,6 +100,57 @@ namespace extendable {
             }
         }
 
+        void InsertWithoutClwb(_key_t key, _value_t value, char fp) {
+            auto slotid = state_.alloc();
+            slot_[slotid] = {key, value};
+
+            state_t new_state = state_;
+            new_state.unpack.bitmap = state_.add(slotid);
+            state_.pack = new_state.pack;
+        }
+
+        uint64_t GetLocalDepth() {
+            return local_depth_[state_.unpack.version];
+        }
+
+        bucket* Split() {
+            bucket* sibling = (bucket*) galc->malloc(sizeof(bucket));
+            auto new_version = (state_.unpack.version + 1) % 2;
+            auto new_state = state_;
+            new_state.unpack.version = new_version;
+
+            /* move entries */
+            for (int i = 0; i < ASSOC_NUM; ++i) {
+                uint64_t hash = hash1(slot_[i].key);
+                uint64_t and_value = ((uint64_t)1 << local_depth_[state_.unpack.version]);
+            #ifndef LSB
+                and_value = (uint64_t)1 << (64 - local_depth_[state_.unpack.version]);
+            #endif
+                uint64_t index = hash & and_value; 
+
+                if (index) {
+                    new_state.free(i);
+                    sibling->InsertWithoutClwb(slot_[i].key, slot_[i].val, fingerprints_[i]);
+                }
+            }
+
+            /* sibling ptr */
+            sibling->next_[0] = next_[state_.unpack.version];
+            next_[new_version] = galc->relative(sibling);
+
+            /* local depth */
+            local_depth_[new_version] = local_depth_[state_.unpack.version] + 1;
+            sibling->local_depth_[0] = local_depth_[new_version];
+
+            /* persist */
+            clwb(sibling, sizeof(bucket));
+            mfence();
+            state_ = new_state;
+            clwb(&state_, 8);
+
+            return sibling;
+        }
+
     }__attribute__((aligned(PMLINE)));
 
     struct directory
@@ -150,12 +201,69 @@ namespace extendable {
             uint64_t hash = hash1(key);
             uint64_t and_value = ( ((uint64_t)1 << entrance_->global_depth_) - (uint64_t)1);
         #ifndef LSB
-            and_value = and_value << (64 - entrance_->global_depth_);
+            // and_value = and_value << (64 - entrance_->global_depth_);
+            hash = hash >> (64 - entrance_->global_depth_);
         #endif
             uint64_t index = hash & and_value; 
 
-            bucket* bucket = dir_->buckets_[index];
-            return  bucket->Get(key, value);
+            bucket* _bucket = dir_->buckets_[index];
+            return  _bucket->Get(key, value);
+        }
+
+        bool Insert(_key_t key, _value_t value) {
+            uint64_t hash = hash1(key);
+        Redo1:
+            uint64_t and_value = ( ((uint64_t)1 << entrance_->global_depth_) - (uint64_t)1);
+        #ifndef LSB
+            // and_value = and_value << (64 - entrance_->global_depth_);
+            hash = hash >> (64 - entrance_->global_depth_);
+        #endif
+            uint64_t index = hash & and_value; 
+
+        Redo2:
+            bucket* _bucket = dir_->buckets_[index];
+            if (_bucket->Insert(key, value)) {
+                return true;
+            } else {
+                if (_bucket->local_depth_[_bucket->state_.unpack.version] < entrance_->global_depth_) {
+                    auto local_depth = _bucket->GetLocalDepth();
+                    bucket* sibling =  _bucket->Split();
+                
+                #ifndef LSB
+                    uint64_t pre = index & ( ~(((uint64_t)1 << (entrance_->global_depth_ - local_depth)) - 1));
+                    uint64_t start = (uint64_t)1 << (entrance_->global_depth_ - local_depth - 1);
+                    uint64_t len = start;
+
+                    for (uint64_t i = 0; i < len; ++i) {
+                        uint64_t index = i + pre + start;
+                        dir_->buckets_[index] = sibling;
+                    }
+                #else
+                    //TODO:
+                #endif
+
+                    goto Redo2;
+                } else {
+                    DirExpand();
+                    goto Redo1;
+                }
+            }
+        }
+
+    private:
+        void DirExpand() {
+            entrance_->global_depth_++;
+            uint64_t new_size = (uint64_t)1 << entrance_->global_depth_;
+            bucket** new_buckets = (bucket**)malloc(sizeof(bucket*) * new_size);
+
+            for (uint64_t i = 0; i < new_size; ++i) {
+                new_buckets[i] = dir_->buckets_[i/2];
+            }
+
+            free(dir_->buckets_);
+            dir_->buckets_ = new_buckets;
+
+            clwb(&entrance_->global_depth_, 8);
         }
 
     private:
