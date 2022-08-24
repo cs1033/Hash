@@ -16,6 +16,7 @@
  
 #include "common.h"
 #include "level.h"
+#include "extendable.h"
 
 
 
@@ -86,7 +87,7 @@ double run_test(BTreeType *tree, std::vector<QueryType> querys, int thread_cnt) 
 
                 switch (op) { 
                     case OperationType::INSERT: {
-                        tree->Insert(key + small_noise, key + small_noise);
+                        auto r = tree->Insert(key + small_noise, key + small_noise);
                         break;
                     }
                     case OperationType::READ: {
@@ -94,6 +95,7 @@ double run_test(BTreeType *tree, std::vector<QueryType> querys, int thread_cnt) 
                         // if (key != val) cout << obtain_pos << "key=" << key << "value=" << val << endl;
                         if (!r)  {
                             notfount++;     //kill optimize
+                            // cout << std::hex << hash1(key)<< std::dec << " " << i <<  endl;
                             // cout << "key=" << key  << " " << INT64_MAX << " value=" << val << endl;
                         }   
                         break;
@@ -190,6 +192,17 @@ int main(int argc, char ** argv) {
     switch (opt_testid) { 
         case 1: {
             level::levelHash* hash = new level::levelHash("/mnt/pmem/lgc/levelHash.pool", false);
+            auto start = seconds();
+            preload(hash, size, pre);
+            auto end = seconds();
+            cout << "preload time:" << double(end - start) << endl;
+            time = run_test(hash, querys, thread_cnt);
+            cout << "levelHash";
+            delete hash;
+            break;
+        }
+        case 2: {
+            extendable::exHash* hash = new extendable::exHash("/mnt/pmem/lgc/exHash.pool", false);
             auto start = seconds();
             preload(hash, size, pre);
             auto end = seconds();

@@ -13,13 +13,13 @@
 #include "flush.h"
 
 // #define MSB // LSB
-#define ASSOC_NUM 13
 
 namespace extendable {
     using std::string;
     using std::cout;
     using std::endl;
     
+    const uint64_t ASSOC_NUM = 13;
 
     union state_t { // an 2 bytes states type
         //1
@@ -39,7 +39,7 @@ namespace extendable {
         }
 
         inline int8_t alloc() {
-            uint32_t tmp = ((uint64_t)0xFFFF8000 | unpack.bitmap);
+            uint32_t tmp = ((uint32_t)0xFFFF8000u | unpack.bitmap);
             return __builtin_ia32_lzcnt_u32(~tmp) - 17;
         }
 
@@ -89,7 +89,9 @@ namespace extendable {
             } else {
                 auto slotid = state_.alloc();
                 slot_[slotid] = {key, value};
+                fingerprints_[slotid] = fp;
                 clwb(&slot_[slotid], sizeof(Record));
+                clwb(&fingerprints_[slotid], sizeof(Record));
                 mfence();
 
                 state_t new_state = state_;
@@ -103,6 +105,7 @@ namespace extendable {
         void InsertWithoutClwb(_key_t key, _value_t value, char fp) {
             auto slotid = state_.alloc();
             slot_[slotid] = {key, value};
+            fingerprints_[slotid] = fp;
 
             state_t new_state = state_;
             new_state.unpack.bitmap = state_.add(slotid);
@@ -122,14 +125,14 @@ namespace extendable {
             /* move entries */
             for (int i = 0; i < ASSOC_NUM; ++i) {
                 uint64_t hash = hash1(slot_[i].key);
-                uint64_t and_value = ((uint64_t)1 << local_depth_[state_.unpack.version]);
+                uint64_t and_value = ((uint64_t)1ull << (local_depth_[state_.unpack.version] - 1ull));
             #ifndef LSB
-                and_value = (uint64_t)1 << (64 - local_depth_[state_.unpack.version]);
+                and_value = (uint64_t)1ull << (63 - local_depth_[state_.unpack.version]);
             #endif
                 uint64_t index = hash & and_value; 
 
                 if (index) {
-                    new_state.free(i);
+                    new_state.unpack.bitmap = new_state.free(i);
                     sibling->InsertWithoutClwb(slot_[i].key, slot_[i].val, fingerprints_[i]);
                 }
             }
@@ -184,6 +187,8 @@ namespace extendable {
             one->local_depth_[0] = 1;
             entrance_->far_left_bucket_ = galc->relative(zero);
             entrance_->global_depth_ = 1;
+            dir_->buckets_[0] = zero;
+            dir_->buckets_[1] = one;
 
             /* persist  */
             clwb(zero, sizeof(bucket));
@@ -194,44 +199,58 @@ namespace extendable {
         }
 
         ~exHash() {
-
+            cout << "depth:" << entrance_->global_depth_ << endl;
         }
 
         bool Get(_key_t key, _value_t& value) {
-            uint64_t hash = hash1(key);
-            uint64_t and_value = ( ((uint64_t)1 << entrance_->global_depth_) - (uint64_t)1);
+            uint64_t f_hash = hash1(key);
+            uint64_t and_value = ( ((uint64_t)1ull << entrance_->global_depth_) - (uint64_t)1ull);
         #ifndef LSB
             // and_value = and_value << (64 - entrance_->global_depth_);
-            hash = hash >> (64 - entrance_->global_depth_);
+            f_hash = f_hash >> (64 - entrance_->global_depth_);
         #endif
-            uint64_t index = hash & and_value; 
+            uint64_t f_index = f_hash & and_value; 
 
-            bucket* _bucket = dir_->buckets_[index];
-            return  _bucket->Get(key, value);
+            bucket* f_bucket = dir_->buckets_[f_index];
+ 
+            // if (f_bucket->Get(key, value)) {
+            //     return true;
+            // } else {
+            //     cout << "f_index:" << std::hex  << f_index << std::dec << endl;
+            //     return false;
+            // }
+
+            return  f_bucket->Get(key, value);
         }
 
         bool Insert(_key_t key, _value_t value) {
-            uint64_t hash = hash1(key);
-        Redo1:
-            uint64_t and_value = ( ((uint64_t)1 << entrance_->global_depth_) - (uint64_t)1);
+        Expand:
+            uint64_t f_hash = hash1(key);
+            uint64_t and_value = ( ((uint64_t)1ull << entrance_->global_depth_) - (uint64_t)1ull);
         #ifndef LSB
             // and_value = and_value << (64 - entrance_->global_depth_);
-            hash = hash >> (64 - entrance_->global_depth_);
+            f_hash = f_hash >> (64 - entrance_->global_depth_);
         #endif
-            uint64_t index = hash & and_value; 
+            uint64_t f_index = f_hash & and_value; 
 
-        Redo2:
-            bucket* _bucket = dir_->buckets_[index];
-            if (_bucket->Insert(key, value)) {
+        Split:
+            bucket* f_bucket = dir_->buckets_[f_index];
+            if (f_bucket->Insert(key, value) ) {
                 return true;
             } else {
-                if (_bucket->local_depth_[_bucket->state_.unpack.version] < entrance_->global_depth_) {
+                bucket* _bucket = nullptr;
+                uint64_t index;
+                if (f_bucket->local_depth_[f_bucket->state_.unpack.version] < entrance_->global_depth_) {
+                    _bucket = f_bucket;
+                    index = f_index;
+                } 
+                if (_bucket != nullptr) {
                     auto local_depth = _bucket->GetLocalDepth();
                     bucket* sibling =  _bucket->Split();
                 
                 #ifndef LSB
-                    uint64_t pre = index & ( ~(((uint64_t)1 << (entrance_->global_depth_ - local_depth)) - 1));
-                    uint64_t start = (uint64_t)1 << (entrance_->global_depth_ - local_depth - 1);
+                    uint64_t pre = index & ( ~(((uint64_t)1ull << (entrance_->global_depth_ - local_depth)) - 1ull));
+                    uint64_t start = (uint64_t)1ull << (entrance_->global_depth_ - local_depth - 1ull);
                     uint64_t len = start;
 
                     for (uint64_t i = 0; i < len; ++i) {
@@ -242,10 +261,10 @@ namespace extendable {
                     //TODO:
                 #endif
 
-                    goto Redo2;
+                    goto Split;
                 } else {
                     DirExpand();
-                    goto Redo1;
+                    goto Expand;
                 }
             }
         }
@@ -253,12 +272,16 @@ namespace extendable {
     private:
         void DirExpand() {
             entrance_->global_depth_++;
-            uint64_t new_size = (uint64_t)1 << entrance_->global_depth_;
+            uint64_t new_size = (uint64_t)1ull << entrance_->global_depth_;
             bucket** new_buckets = (bucket**)malloc(sizeof(bucket*) * new_size);
 
+        #ifndef LSB
             for (uint64_t i = 0; i < new_size; ++i) {
                 new_buckets[i] = dir_->buckets_[i/2];
             }
+        #else
+            //TODO
+        #endif
 
             free(dir_->buckets_);
             dir_->buckets_ = new_buckets;
