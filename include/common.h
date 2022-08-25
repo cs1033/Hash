@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <unistd.h>
 #include <sys/time.h>
+#include <x86intrin.h>
+
  
 // in-persistent-memory log area
 #define LOG_DATA_SIZE        48
@@ -26,6 +28,39 @@
 
 
 #define DOFLUSH
+
+
+union state_t { // an 2 bytes states type
+    //1
+    uint16_t pack;
+    //2
+    struct unpack_t {
+        uint16_t bitmap         : 15;
+        uint16_t version        : 1;
+    } unpack;
+
+    inline uint8_t count() {
+        return (uint8_t)_mm_popcnt_u32(unpack.bitmap);
+    }
+
+    inline bool read(int8_t idx) {
+        return (unpack.bitmap & ((uint16_t)0x8000 >> (idx + 1))) > 0;
+    }
+
+    inline int8_t alloc() {
+        uint32_t tmp = ((uint32_t)0xFFFF8000u | unpack.bitmap);
+        return __builtin_ia32_lzcnt_u32(~tmp) - 17;
+    }
+
+    inline uint16_t add(int8_t idx) {
+        return unpack.bitmap + ((uint16_t)0x8000 >> (idx + 1));
+    }
+
+    inline uint16_t free(int8_t idx) {
+        return unpack.bitmap - ((uint16_t)0x8000 >> (idx + 1));
+    }
+};
+
 
 using _key_t = int64_t;
 using _value_t = int64_t;

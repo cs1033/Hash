@@ -21,36 +21,6 @@ namespace extendable {
     
     const uint64_t ASSOC_NUM = 13;
 
-    union state_t { // an 2 bytes states type
-        //1
-        uint16_t pack;
-        //2
-        struct unpack_t {
-            uint16_t bitmap         : 15;
-            uint16_t version        : 1;
-        } unpack;
-
-        inline uint8_t count() {
-            return (uint8_t)_mm_popcnt_u32(unpack.bitmap);
-        }
-
-        inline bool read(int8_t idx) {
-            return (unpack.bitmap & ((uint16_t)0x8000 >> (idx + 1))) > 0;
-        }
-
-        inline int8_t alloc() {
-            uint32_t tmp = ((uint32_t)0xFFFF8000u | unpack.bitmap);
-            return __builtin_ia32_lzcnt_u32(~tmp) - 17;
-        }
-
-        inline uint16_t add(int8_t idx) {
-            return unpack.bitmap + ((uint16_t)0x8000 >> (idx + 1));
-        }
-
-        inline uint16_t free(int8_t idx) {
-            return unpack.bitmap - ((uint16_t)0x8000 >> (idx + 1));
-        }
-    };
 
 
     struct  bucket
@@ -171,31 +141,37 @@ namespace extendable {
     class exHash {
     public:
         exHash(string path, bool recover) {
-            galc = new PMAllocator(path.c_str(), false, "exHash");
+            if (recover == false) {
+                galc = new PMAllocator(path.c_str(), false, "exHash");
             
-            /* allocate*/
-            entrance_ = (entrance *) galc->get_root(sizeof(entrance));
-            dir_ = new directory();
-            dir_->buckets_ = (bucket**)malloc(sizeof(bucket*) * 2);
-            bucket* zero = (bucket*) galc->malloc(sizeof(bucket));
-            bucket* one  = (bucket*) galc->malloc(sizeof(bucket));
+                /* allocate*/
+                entrance_ = (entrance *) galc->get_root(sizeof(entrance));
+                dir_ = new directory();
+                dir_->buckets_ = (bucket**)malloc(sizeof(bucket*) * 2);
+                bucket* zero = (bucket*) galc->malloc(sizeof(bucket));
+                bucket* one  = (bucket*) galc->malloc(sizeof(bucket));
 
-            /* assign */
-            zero->next_[0] = galc->relative(one);
-            zero->local_depth_[0] = 1;
-            one->next_[0]  = nullptr;
-            one->local_depth_[0] = 1;
-            entrance_->far_left_bucket_ = galc->relative(zero);
-            entrance_->global_depth_ = 1;
-            dir_->buckets_[0] = zero;
-            dir_->buckets_[1] = one;
+                /* assign */
+                zero->next_[0] = galc->relative(one);
+                zero->local_depth_[0] = 1;
+                one->next_[0]  = nullptr;
+                one->local_depth_[0] = 1;
+                entrance_->far_left_bucket_ = galc->relative(zero);
+                entrance_->global_depth_ = 1;
+                dir_->buckets_[0] = zero;
+                dir_->buckets_[1] = one;
 
-            /* persist  */
-            clwb(zero, sizeof(bucket));
-            clwb(one, sizeof(bucket));
-            mfence();
+                /* persist  */
+                clwb(zero, sizeof(bucket));
+                clwb(one, sizeof(bucket));
+                mfence();
 
-            clwb(entrance_, sizeof(entrance));
+                clwb(entrance_, sizeof(entrance));
+            } else {
+                
+            }
+
+            
         }
 
         ~exHash() {
