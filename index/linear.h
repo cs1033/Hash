@@ -13,13 +13,16 @@
 #include "pmallocator.h"
 #include "flush.h"
 
+#define  LSB
+
 
 namespace linear {
     using std::string;
     using std::cout;
     using std::endl;
     
-    const uint64_t ASSOC_NUM = 13;
+    const uint64_t  ASSOC_NUM = 13;
+    const double    FILL_RATE = 0.8;
     
 
     struct  bucket
@@ -28,12 +31,14 @@ namespace linear {
         char        fingerprints_[ASSOC_NUM];
         char        dumnp_;
         Record      slot_[ASSOC_NUM];
-        bucket*     next_[2];
-        bucket*     append_[2];
+        bucket*     next_;
+        bucket*     append_;
 
 
         bucket() {
             state_.pack = 0;
+            next_ = nullptr;
+            append_ = nullptr;
         }
 
         void * operator new(size_t size) {
@@ -48,23 +53,27 @@ namespace linear {
                     return true;
                 }
             }
-            return false;
+            if (append_ != nullptr) {
+                return galc->absolute(append_)->Get(key, value);
+            } else {
+                return false;
+            }
         }
 
         bool Insert(_key_t key, _value_t value) {
             char fp = finger_print(key);
             if (state_.count() == ASSOC_NUM) {
-                if (append_[0] != nullptr) {
-                    bucket* append = (bucket*) galc->absolute(append_[0]);
+                if (append_ != nullptr) {
+                    bucket* append = (bucket*) galc->absolute(append_);
                     return append->Insert(key, value);
                 } else {
                     bucket* append = (bucket*) galc->malloc(sizeof(bucket));
                     append->InsertWithoutClwb(key, value, fp);
-                    append->append_[0] = nullptr;
+                    append->append_ = nullptr;
                     clwb(append, sizeof(bucket));
                     mfence();
-                    append_[0] = galc->relative(append);
-                    clwb(append_[0], 8);
+                    append_ = galc->relative(append);
+                    clwb(append_, 8);
                     return true;
                 }
             } else {
@@ -98,7 +107,9 @@ namespace linear {
 
     struct directory
     {
-        bucket** buckets_;         
+        bucket** buckets_;
+        uint64_t dir_size_, bucket_cnt_;
+        uint64_t length_;         
     }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
@@ -106,10 +117,181 @@ namespace linear {
         linearHash(string path, bool recover) {
             if (recover == false) {
                 galc = new PMAllocator(path.c_str(), false, "linearHash");
+                
+                /* allocate*/
+                dir_ = new directory();
+                dir_->buckets_ = (bucket**)malloc(sizeof(bucket*));
+                bucket* zero = (bucket*) galc->get_root(sizeof(bucket));
+
+                /* assign */
+                entry_cnt_ = 0;
+                dir_->dir_size_ = 1;
+                dir_->bucket_cnt_ = 1;
+                dir_->length_ = 1;
+
+                /* persist  */
+                clwb(zero, sizeof(bucket));
             } else {
 
             }
         }
+
+        ~linearHash() {
+
+        }
+
+        bool Get(_key_t key, _value_t value) {
+            uint64_t f_hash = hash1(key);
+          #ifdef LSB
+            uint64_t and_value = (1ull << dir_->length_) - 1ull;
+          #else
+            //TODO
+          #endif
+            f_hash &= and_value;
+            uint64_t f_index = f_hash >= dir_->bucket_cnt_ ? f_hash - (1ull << (dir_->length_ - 1ull)) : f_hash;
+            bucket*  f_bucket = dir_->buckets_[f_index];
+
+            return f_bucket->Get(key, value);
+        }
+
+        bool Insert(_key_t key, _value_t value) {
+            /* allocate a new bucket */
+            if ((0.0 + entry_cnt_) / (0.0 + dir_->bucket_cnt_) / ASSOC_NUM > FILL_RATE) {
+                AllocateBucket();
+            }
+
+            uint64_t f_hash = hash1(key);
+          #ifdef LSB
+            uint64_t and_value = (1ull << dir_->length_) - 1ull;
+          #else
+            //TODO
+          #endif
+            f_hash &= and_value;
+            uint64_t f_index = f_hash >= dir_->bucket_cnt_ ? f_hash - (1ull << (dir_->length_ - 1ull)) : f_hash;
+            bucket*  f_bucket = dir_->buckets_[f_index];
+
+            return f_bucket->Insert(key, value);
+        }
+
+    private:
+        void AllocateBucket() {
+            /* update directory */
+            if (dir_->dir_size_ == dir_->bucket_cnt_) {
+                dir_->dir_size_ *= 2ull; 
+                bucket** new_buckets = (bucket**)malloc(sizeof(bucket*) * dir_->dir_size_);
+                for (int i = 0; i < dir_->bucket_cnt_; ++i) {
+                    new_buckets[i] = dir_->buckets_[i];
+                }
+                free(dir_->buckets_);
+                dir_->buckets_ = new_buckets;
+            }
+            dir_->bucket_cnt_++;
+            if (dir_->bucket_cnt_ > (1ull << (dir_->length_))) {
+                dir_->length_++;
+            }
+
+            /* allocate */
+            uint64_t new_index = dir_->bucket_cnt_ - 1ull;
+            bucket* new_bucket = (bucket*) galc->malloc(sizeof(bucket));
+            bucket* replace_bucket = dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull))];
+            bucket* last_bucket = dir_->buckets_[new_index - 1ull];
+
+            if (replace_bucket->append_ != nullptr) {    //multi buckets
+                bucket* copy_bucket = (bucket*) galc->malloc(sizeof(bucket));
+                bucket* zero = copy_bucket, *one = new_bucket;
+
+                /* copy entries */
+                while (1) {
+                    for (int i = 0; i < ASSOC_NUM; ++i) {
+                        if (replace_bucket->state_.read(i)) {
+                            _key_t k = replace_bucket->slot_[i].key;
+                            uint64_t hash = hash1(k);
+                        #ifdef LSB
+                            uint64_t and_value = (1ull << dir_->length_) - 1ull;
+                        #else
+                            //TODO
+                        #endif
+                            hash &= and_value;
+                            uint64_t index = hash >= dir_->bucket_cnt_ ? hash - (1ull << (dir_->length_ - 1ull)) : hash;
+
+                            if (index == new_index) {
+                                if (one->state_.count() == ASSOC_NUM) {
+                                    one->append_ = (bucket*) galc->relative(galc->malloc(sizeof(bucket)));
+                                    clwb(one, sizeof(bucket));
+                                    one = one->append_;
+                                } 
+                                one->InsertWithoutClwb(k, replace_bucket->slot_[i].val, replace_bucket->fingerprints_[i]);
+                            } else {
+                                if (zero->state_.count() == ASSOC_NUM) {
+                                    zero->append_ = (bucket*) galc->relative(galc->malloc(sizeof(bucket)));
+                                    clwb(zero, sizeof(bucket));
+                                    zero = zero->append_;
+                                } 
+                                zero->InsertWithoutClwb(k, replace_bucket->slot_[i].val, replace_bucket->fingerprints_[i]);
+                            }
+                        }
+                    }
+                    if (replace_bucket->append_ != nullptr) {
+                        replace_bucket = galc->absolute(replace_bucket->append_);
+                    } else {
+                        break;
+                    }
+                } // while
+
+                /* add new bucket to bucket level */
+                clwb(zero, sizeof(bucket));
+                clwb(one, sizeof(bucket));
+                clwb(new_bucket, sizeof(bucket));
+                mfence();
+                last_bucket->next_ = galc->relative(new_bucket);
+                clwb(last_bucket->next_, 8);
+                mfence();
+
+                /* add copy bucket to bucket level */
+                // bucket* pre = 
+
+
+            } else {    //single bucket
+                /* move entries */
+                state_t new_state = replace_bucket->state_;
+                for (int i = 0; i < ASSOC_NUM; ++i) {
+                    if (replace_bucket->state_.read(i)) {
+                        _key_t k = replace_bucket->slot_[i].key;
+                        uint64_t hash = hash1(k);
+                      #ifdef LSB
+                        uint64_t and_value = (1ull << dir_->length_) - 1ull;
+                      #else
+                        //TODO
+                      #endif
+                        hash &= and_value;
+                        uint64_t index = hash >= dir_->bucket_cnt_ ? hash - (1ull << (dir_->length_ - 1ull)) : hash;
+
+                        if (index == new_index) {
+                            new_bucket->InsertWithoutClwb(k, replace_bucket->slot_[i].val, replace_bucket->fingerprints_[i]);
+                            new_state.unpack.bitmap = new_state.free(i); 
+                        }
+                    }
+                }
+                
+                /* add new bucket to bucket level */
+                clwb(new_bucket, sizeof(bucket));
+                mfence();
+                last_bucket->next_ = galc->relative(new_bucket);
+                clwb(last_bucket->next_, 8);
+                mfence();
+
+                /* delete duplicate entries */
+                replace_bucket->state_ = new_state;
+                clwb(&(replace_bucket->state_), 8);
+            }
+
+            /* add new bucket to directory */
+            dir_->buckets_[new_index] = new_bucket;
+        }
+
+    private:
+        directory*   dir_;
+        uint64_t    entry_cnt_;
     };
 
 

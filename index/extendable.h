@@ -151,6 +151,9 @@ namespace extendable {
                 bucket* zero = (bucket*) galc->malloc(sizeof(bucket));
                 bucket* one  = (bucket*) galc->malloc(sizeof(bucket));
 
+                assert(zero->state_.unpack.bitmap == 0);
+                assert(one->state_.unpack.bitmap == 0);
+
                 /* assign */
                 zero->next_[0] = galc->relative(one);
                 zero->local_depth_[0] = 1;
