@@ -17,6 +17,7 @@
 #include "common.h"
 #include "level.h"
 #include "extendable.h"
+#include "linear.h"
 
 
 
@@ -208,7 +209,18 @@ int main(int argc, char ** argv) {
             auto end = seconds();
             cout << "preload time:" << double(end - start) << endl;
             time = run_test(hash, querys, thread_cnt);
-            cout << "levelHash";
+            cout << "exHash";
+            delete hash;
+            break;
+        }
+        case 3: {
+            linear::linearHash* hash = new linear::linearHash("/mnt/pmem/lgc/linearHash.pool", false);
+            auto start = seconds();
+            preload(hash, size, pre);
+            auto end = seconds();
+            cout << "preload time:" << double(end - start) << endl;
+            time = run_test(hash, querys, thread_cnt);
+            cout << "linearHash";
             delete hash;
             break;
         }

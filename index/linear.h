@@ -73,7 +73,7 @@ namespace linear {
                     clwb(append, sizeof(bucket));
                     mfence();
                     append_ = galc->relative(append);
-                    clwb(append_, 8);
+                    clwb(&append_, 8);
                     return true;
                 }
             } else {
@@ -114,23 +114,32 @@ namespace linear {
 
 
     class linearHash {
-        linearHash(string path, bool recover) {
+    public:
+        linearHash(string path, bool recover, uint64_t dir_size = LOADSCALE * 1024ull * 1024ull / ASSOC_NUM) {
             if (recover == false) {
                 galc = new PMAllocator(path.c_str(), false, "linearHash");
                 
                 /* allocate*/
                 dir_ = new directory();
-                dir_->buckets_ = (bucket**)malloc(sizeof(bucket*));
-                bucket* zero = (bucket*) galc->get_root(sizeof(bucket));
+                dir_->buckets_ = (bucket**)malloc(sizeof(bucket*) * dir_size);
+                entrance_ = (bucket*) galc->get_root(sizeof(bucket));
+                bucket* zero = (bucket*) galc->malloc(sizeof(bucket));
 
                 /* assign */
                 entry_cnt_ = 0;
-                dir_->dir_size_ = 1;
+                dir_->dir_size_ = dir_size;
                 dir_->bucket_cnt_ = 1;
                 dir_->length_ = 1;
+                dir_->buckets_[0] = zero;
+                entrance_->next_ = galc->relative(zero);
+                zero->append_ = nullptr;
+                zero->next_ = nullptr;
 
                 /* persist  */
                 clwb(zero, sizeof(bucket));
+                clwb(entrance_, sizeof(bucket));
+
+                cout << "init success " << endl;
             } else {
 
             }
@@ -169,8 +178,9 @@ namespace linear {
             f_hash &= and_value;
             uint64_t f_index = f_hash >= dir_->bucket_cnt_ ? f_hash - (1ull << (dir_->length_ - 1ull)) : f_hash;
             bucket*  f_bucket = dir_->buckets_[f_index];
-
-            return f_bucket->Insert(key, value);
+            f_bucket->Insert(key, value);
+            entry_cnt_++;
+            return true;
         }
 
     private:
@@ -190,15 +200,22 @@ namespace linear {
                 dir_->length_++;
             }
 
+        
             /* allocate */
             uint64_t new_index = dir_->bucket_cnt_ - 1ull;
             bucket* new_bucket = (bucket*) galc->malloc(sizeof(bucket));
             bucket* replace_bucket = dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull))];
             bucket* last_bucket = dir_->buckets_[new_index - 1ull];
 
+            // cout << "new_index:" << new_index << " replace_index:" << new_index - (1ull << (dir_->length_ - 1ull)) << endl;
+
             if (replace_bucket->append_ != nullptr) {    //multi buckets
+                if (new_index == 47683) {
+                    cout << "multi" << endl;
+                }
                 bucket* copy_bucket = (bucket*) galc->malloc(sizeof(bucket));
                 bucket* zero = copy_bucket, *one = new_bucket;
+
 
                 /* copy entries */
                 while (1) {
@@ -218,14 +235,14 @@ namespace linear {
                                 if (one->state_.count() == ASSOC_NUM) {
                                     one->append_ = (bucket*) galc->relative(galc->malloc(sizeof(bucket)));
                                     clwb(one, sizeof(bucket));
-                                    one = one->append_;
+                                    one = galc->absolute(one->append_);
                                 } 
                                 one->InsertWithoutClwb(k, replace_bucket->slot_[i].val, replace_bucket->fingerprints_[i]);
                             } else {
                                 if (zero->state_.count() == ASSOC_NUM) {
                                     zero->append_ = (bucket*) galc->relative(galc->malloc(sizeof(bucket)));
                                     clwb(zero, sizeof(bucket));
-                                    zero = zero->append_;
+                                    zero = galc->absolute(zero->append_);
                                 } 
                                 zero->InsertWithoutClwb(k, replace_bucket->slot_[i].val, replace_bucket->fingerprints_[i]);
                             }
@@ -237,6 +254,9 @@ namespace linear {
                         break;
                     }
                 } // while
+           
+
+                bucket* replace_bucket = dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull))];
 
                 /* add new bucket to bucket level */
                 clwb(zero, sizeof(bucket));
@@ -244,12 +264,32 @@ namespace linear {
                 clwb(new_bucket, sizeof(bucket));
                 mfence();
                 last_bucket->next_ = galc->relative(new_bucket);
-                clwb(last_bucket->next_, 8);
+                clwb(&(last_bucket->next_), 8);
                 mfence();
 
-                /* add copy bucket to bucket level */
-                // bucket* pre = 
 
+                /* add copy bucket to bucket level */
+                uint64_t replace_index = new_index - (1ull << (dir_->length_ - 1ull));
+                bucket* pre_bucket = replace_index != 0ull ? dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull)) - 1ull] : entrance_;
+                copy_bucket->next_ = replace_bucket->next_;
+                clwb(copy_bucket, sizeof(bucket));
+                mfence();
+                pre_bucket->next_ = galc->relative(copy_bucket);
+                clwb(&(pre_bucket->next_), 8);
+                mfence();
+                dir_->buckets_[replace_index] = copy_bucket;
+
+                
+                /* free replace bucket */
+                bucket* tmp = replace_bucket;
+                while (1) {
+                    tmp = galc->absolute(replace_bucket->append_);
+                    galc->free(replace_bucket);
+                    replace_bucket = tmp;
+                    if (replace_bucket->append_ == nullptr) {
+                        break;
+                    }
+                }
 
             } else {    //single bucket
                 /* move entries */
@@ -272,12 +312,11 @@ namespace linear {
                         }
                     }
                 }
-                
                 /* add new bucket to bucket level */
                 clwb(new_bucket, sizeof(bucket));
                 mfence();
                 last_bucket->next_ = galc->relative(new_bucket);
-                clwb(last_bucket->next_, 8);
+                clwb(&(last_bucket->next_), 8);
                 mfence();
 
                 /* delete duplicate entries */
@@ -287,10 +326,13 @@ namespace linear {
 
             /* add new bucket to directory */
             dir_->buckets_[new_index] = new_bucket;
+            // cout << "success " << endl;
+
         }
 
     private:
-        directory*   dir_;
+        bucket*     entrance_;
+        directory*  dir_;
         uint64_t    entry_cnt_;
     };
 
