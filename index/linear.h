@@ -139,14 +139,13 @@ namespace linear {
                 clwb(zero, sizeof(bucket));
                 clwb(entrance_, sizeof(bucket));
 
-                cout << "init success " << endl;
             } else {
 
             }
         }
 
         ~linearHash() {
-
+            cout << "number of bucket : " << dir_->bucket_cnt_ << endl;
         }
 
         bool Get(_key_t key, _value_t value) {
@@ -207,12 +206,9 @@ namespace linear {
             bucket* replace_bucket = dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull))];
             bucket* last_bucket = dir_->buckets_[new_index - 1ull];
 
-            // cout << "new_index:" << new_index << " replace_index:" << new_index - (1ull << (dir_->length_ - 1ull)) << endl;
 
             if (replace_bucket->append_ != nullptr) {    //multi buckets
-                if (new_index == 47683) {
-                    cout << "multi" << endl;
-                }
+
                 bucket* copy_bucket = (bucket*) galc->malloc(sizeof(bucket));
                 bucket* zero = copy_bucket, *one = new_bucket;
 
@@ -326,7 +322,6 @@ namespace linear {
 
             /* add new bucket to directory */
             dir_->buckets_[new_index] = new_bucket;
-            // cout << "success " << endl;
 
         }
 

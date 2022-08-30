@@ -140,9 +140,9 @@ namespace level {
         
         ~levelHash() {
             std::cout << "level: " << level_ << std::endl;
-            std::cout << "capacity: " << addr_capacity_ << std::endl;
-            std::cout << "level 0: " << level_entry_num_[0] << std::endl;
-            std::cout << "level 1: " << level_entry_num_[1] << std::endl;
+            // std::cout << "capacity: " << addr_capacity_ << std::endl;
+            // std::cout << "level 0: " << level_entry_num_[0] << std::endl;
+            // std::cout << "level 1: " << level_entry_num_[1] << std::endl;
         }
         
         bool Get(_key_t key, _value_t& value) {

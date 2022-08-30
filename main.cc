@@ -198,7 +198,7 @@ int main(int argc, char ** argv) {
             auto end = seconds();
             cout << "preload time:" << double(end - start) << endl;
             time = run_test(hash, querys, thread_cnt);
-            cout << "levelHash";
+            cout << "levelHash"<< "'s Throughput : " << querys.size() / time / 1000000 << endl;
             delete hash;
             break;
         }
@@ -209,7 +209,7 @@ int main(int argc, char ** argv) {
             auto end = seconds();
             cout << "preload time:" << double(end - start) << endl;
             time = run_test(hash, querys, thread_cnt);
-            cout << "exHash";
+            cout << "exHash"<< "'s Throughput : " << querys.size() / time / 1000000 << endl;
             delete hash;
             break;
         }
@@ -220,7 +220,7 @@ int main(int argc, char ** argv) {
             auto end = seconds();
             cout << "preload time:" << double(end - start) << endl;
             time = run_test(hash, querys, thread_cnt);
-            cout << "linearHash";
+            cout << "linearHash"<< "'s Throughput : " << querys.size() / time / 1000000 << endl;
             delete hash;
             break;
         }
@@ -228,7 +228,6 @@ int main(int argc, char ** argv) {
             cout << "Invalid tree type" << endl;
             break;
     } 
-    cout << "'s Throughput : " << querys.size() / time / 1000000 << endl;
     delete keys;
     pre.close();
     fin.close();
