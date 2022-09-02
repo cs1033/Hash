@@ -128,7 +128,7 @@ namespace extendable {
 
     struct directory
     {
-        bucket** buckets_;         
+        bucket**    buckets_;   
     }__attribute__((aligned(CACHE_LINE_SIZE)));
 
 
