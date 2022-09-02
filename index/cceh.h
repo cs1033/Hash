@@ -22,7 +22,7 @@ namespace cceh {
     const _key_t INVALID = -1;
     
     // const size_t kCacheLineSize = 64;
-    constexpr size_t kSegmentBits = 8;
+    constexpr size_t kSegmentBits = 5;
     constexpr size_t kBucketSize = CACHE_LINE_SIZE;
     constexpr size_t kMask = (1ull << kSegmentBits) - 1ull;
     constexpr size_t kSegmentSize = (1ull << kSegmentBits) * kBucketSize;
@@ -30,7 +30,7 @@ namespace cceh {
     constexpr size_t kNumPairPerBucket = kBucketSize / 16;
 
     struct  segment;
-    struct  directory;
+    struct  directory; 
     struct entrance;
 
     
@@ -144,6 +144,7 @@ namespace cceh {
         }
 
         segment* Split() {
+            // cout << "1" << endl;
             segment* split_segment = (segment*)galc->malloc(sizeof(segment));
             for (size_t i = 0; i < segment::kNumSlot; i++) {
                 split_segment->slot_[i].key = INVALID;
@@ -159,6 +160,7 @@ namespace cceh {
             }
             
             clwb(split_segment, sizeof(segment));
+            // cout << "2" << endl;
             return split_segment;
         }
 
@@ -211,13 +213,15 @@ namespace cceh {
                 clwb(dir_, sizeof(directory));
                 mfence();
                 clwb(entrance_, sizeof(entrance));
+
+                cout << "init success!" << endl;
             }
         }
         ~cceh() {}
 
         bool Get(_key_t key, _value_t& value) {
-            auto f_hash = hash1(key);
-            auto f_index = f_hash >> ((sizeof(f_hash) * 8) - dir_->global_depth_);
+            uint64_t f_hash = hash1(key);
+            uint64_t f_index = f_hash >> ((sizeof(f_hash) * 8) - dir_->global_depth_);
             segment* f_segment = galc->absolute(dir_->segments_[f_index]) ;
             if (f_segment->Get(key, value)) {
                 return true;
@@ -229,23 +233,32 @@ namespace cceh {
 
         bool Insert(_key_t key, _value_t value) { 
         Redo:
-            auto f_hash = hash1(key);
-            auto f_index = f_hash >> ((sizeof(f_hash) * 8) - dir_->global_depth_);
+            uint64_t f_hash = hash1(key);
+            uint64_t f_index = f_hash >> ((sizeof(f_hash) * 8) - dir_->global_depth_);
             segment* f_segment = galc->absolute(dir_->segments_[f_index]) ;
             if (f_segment->Insert(key, value)) {
                 return true;
             }
-
+            
+       
             /*split*/
-            if (f_segment->local_depth_ == dir_->global_depth_) {
+            if (f_segment->local_depth_ >= dir_->global_depth_) {
                 /* need to double the directory */
                 DirExpand();
                 goto Redo;
             } else { // normal segment split
                 segment* split_segment = f_segment->Split();
-                
+
                 /* add split segment to directory */
-                
+                uint64_t pre = f_index & ( ~(((uint64_t)1ull << (dir_->global_depth_ - f_segment->local_depth_)) - 1ull));
+                uint64_t start = (uint64_t)1ull << (dir_->global_depth_ - f_segment->local_depth_ - 1ull);
+                uint64_t len = start;
+                for (uint64_t i = 0; i < len; ++i) {
+                    uint64_t pos = i + pre + start;
+                    dir_->segments_[pos] = galc->relative(split_segment);
+                }
+                clwb(&(dir_->segments_[pre + start]), sizeof(segment*) * len);
+                mfence();
 
 
                 /*add origin segment's local depth*/
@@ -258,6 +271,7 @@ namespace cceh {
 
     private:
         void DirExpand() {
+
             directory* new_dir = (directory*)galc->malloc(sizeof(directory));
             new_dir->global_depth_ = dir_->global_depth_ + 1;
             auto new_capacity = 1ull << new_dir->global_depth_;

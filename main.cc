@@ -18,6 +18,7 @@
 #include "level.h"
 #include "extendable.h"
 #include "linear.h"
+#include "cceh.h"
 
 
 
@@ -48,7 +49,7 @@ void preload(BTreeType *tree, uint64_t load_size, ifstream & fin, int thread_cnt
             for(int i = 0; i < MILLION; i++) {
                 mykey_t key = keys[i];
                 tree->Insert((mykey_t)key, key);
-                
+                assert(tree->Get(key, key));
             }
         }
     #endif
@@ -221,6 +222,17 @@ int main(int argc, char ** argv) {
             cout << "preload time:" << double(end - start) << endl;
             time = run_test(hash, querys, thread_cnt);
             cout << "linearHash"<< "'s Throughput : " << querys.size() / time / 1000000 << endl;
+            delete hash;
+            break;
+        }
+        case 4: {
+            cceh::cceh* hash = new cceh::cceh("/mnt/pmem/lgc/cceh.pool", false);
+            auto start = seconds();
+            preload(hash, size, pre);
+            auto end = seconds();
+            cout << "preload time:" << double(end - start) << endl;
+            time = run_test(hash, querys, thread_cnt);
+            cout << "cceh"<< "'s Throughput : " << querys.size() / time / 1000000 << endl;
             delete hash;
             break;
         }
