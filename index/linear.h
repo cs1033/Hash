@@ -184,6 +184,7 @@ namespace linear {
 
     private:
         void AllocateBucket() {
+            // cout << "allocate" << endl;
             /* update directory */
             if (dir_->dir_size_ == dir_->bucket_cnt_) {
                 dir_->dir_size_ *= 2ull; 
@@ -206,13 +207,15 @@ namespace linear {
             bucket* replace_bucket = dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull))];
             bucket* last_bucket = dir_->buckets_[new_index - 1ull];
 
+          
 
             if (replace_bucket->append_ != nullptr) {    //multi buckets
+           
 
                 bucket* copy_bucket = (bucket*) galc->malloc(sizeof(bucket));
                 bucket* zero = copy_bucket, *one = new_bucket;
 
-
+                
                 /* copy entries */
                 while (1) {
                     for (int i = 0; i < ASSOC_NUM; ++i) {
@@ -250,6 +253,7 @@ namespace linear {
                         break;
                     }
                 } // while
+
            
 
                 bucket* replace_bucket = dir_->buckets_[new_index - (1ull << (dir_->length_ - 1ull))];
@@ -275,20 +279,22 @@ namespace linear {
                 mfence();
                 dir_->buckets_[replace_index] = copy_bucket;
 
-                
-                /* free replace bucket */
-                bucket* tmp = replace_bucket;
-                while (1) {
-                    tmp = galc->absolute(replace_bucket->append_);
-                    galc->free(replace_bucket);
-                    replace_bucket = tmp;
-                    if (replace_bucket->append_ == nullptr) {
-                        break;
-                    }
-                }
+
+                // /* free replace bucket */
+                // bucket* tmp = replace_bucket;
+                // while (1) {
+                //     tmp = replace_bucket->append_;
+                //     galc->free(replace_bucket);
+                //     if (tmp == nullptr) {
+                //         break;
+                //     }
+                //     replace_bucket = galc->absolute(tmp);
+                // }
+            
 
             } else {    //single bucket
                 /* move entries */
+                
                 state_t new_state = replace_bucket->state_;
                 for (int i = 0; i < ASSOC_NUM; ++i) {
                     if (replace_bucket->state_.read(i)) {
@@ -308,6 +314,7 @@ namespace linear {
                         }
                     }
                 }
+                
                 /* add new bucket to bucket level */
                 clwb(new_bucket, sizeof(bucket));
                 mfence();
@@ -315,13 +322,17 @@ namespace linear {
                 clwb(&(last_bucket->next_), 8);
                 mfence();
 
+                
                 /* delete duplicate entries */
                 replace_bucket->state_ = new_state;
                 clwb(&(replace_bucket->state_), 8);
             }
 
+            
             /* add new bucket to directory */
             dir_->buckets_[new_index] = new_bucket;
+
+            // cout << new_index << endl;
 
         }
 

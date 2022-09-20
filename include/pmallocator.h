@@ -71,7 +71,8 @@ public:
             meta_ = (MetaType *)pmemobj_direct(pmemobj_root(pop_, sizeof(MetaType)));
             
             // maintain volatile domain
-            uint64_t alloc_size = (pool_size >> 1) + (pool_size >> 2) + (pool_size >> 3); // 3/4 of the pool is used as block alloction
+            uint64_t alloc_size = (pool_size >> 1); // 1/2 of the pool is used as block alloction
+            // uint64_t alloc_size = (pool_size >> 1) + (pool_size >> 2) + (pool_size >> 3); // 7/8 of the pool is used as block alloction
             for(int i = 0; i < PEICE_CNT; i++) {
                 buff_[i] = (char *)mem_alloc(alloc_size / PEICE_CNT);
                 buff_aligned_[i] = (char *) ((uint64_t)buff_[i] + ((uint64_t) buff_[i] % ALIGN_SIZE == 0 ? 0 : (ALIGN_SIZE - (uint64_t) buff_[i] % ALIGN_SIZE)));

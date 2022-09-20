@@ -22,7 +22,7 @@ namespace cceh {
     const _key_t INVALID = -1;
     
     // const size_t kCacheLineSize = 64;
-    constexpr size_t kSegmentBits = 5;
+    constexpr size_t kSegmentBits = 8;
     constexpr size_t kBucketSize = CACHE_LINE_SIZE;
     constexpr size_t kMask = (1ull << kSegmentBits) - 1ull;
     constexpr size_t kSegmentSize = (1ull << kSegmentBits) * kBucketSize;
@@ -144,8 +144,8 @@ namespace cceh {
         }
 
         segment* Split() {
-            // cout << "1" << endl;
             segment* split_segment = (segment*)galc->malloc(sizeof(segment));
+            assert(split_segment != this);
             for (size_t i = 0; i < segment::kNumSlot; i++) {
                 split_segment->slot_[i].key = INVALID;
             }
@@ -160,7 +160,6 @@ namespace cceh {
             }
             
             clwb(split_segment, sizeof(segment));
-            // cout << "2" << endl;
             return split_segment;
         }
 
@@ -271,23 +270,20 @@ namespace cceh {
 
     private:
         void DirExpand() {
-
             directory* new_dir = (directory*)galc->malloc(sizeof(directory));
+            assert(new_dir != dir_);
             new_dir->global_depth_ = dir_->global_depth_ + 1;
             auto new_capacity = 1ull << new_dir->global_depth_;
             new_dir->segments_ = (segment**)galc->malloc(sizeof(segment*) * new_capacity);
+            assert(new_dir->segments_ != dir_->segments_);
 
             for (size_t i = 0; i < new_capacity; ++i) {
                 new_dir->segments_[i] = dir_->segments_[i/2];
             }
-
             entrance_->dir_ = galc->relative(new_dir);
-            /*free old direcoty*/
-            for (size_t i = 0; i < new_capacity/2; ++i) {
-                galc->free(galc->absolute(dir_->segments_[i]));
-            }
             galc->free(dir_);
             dir_ = new_dir;
+
         }
 
 

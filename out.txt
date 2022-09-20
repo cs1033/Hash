@@ -1,0 +1,12 @@
+preload time:167.655
+levelHash's Throughput : 1.01219
+level: 23
+preload time:76.6217
+exHash's Throughput : 3.48541
+depth:27
+preload time:75.4164
+linearHash's Throughput : 2.24872
+number of bucket : 6452776
+init success!
+preload time:58.567
+cceh's Throughput : 3.9302

@@ -281,7 +281,7 @@ namespace level {
             mfence();
 
             /* pointers consistency */
-            auto tmp = buckets_[1];
+            galc->free(buckets_[1]);
             buckets_[1] = buckets_[0];
             buckets_[0] = interim_level_buckets_;
             entrance_->buckets_[new_version][0] = galc->relative(buckets_[0]);
